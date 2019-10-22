@@ -231,6 +231,16 @@ impl Command for EncryptCommand {
             return self.help();
         }
 
+        // Refuse to encrypt if the bip39 bug has not been fixed
+        use crate::lightwallet::bugs::BugBip39Derivation;
+        if BugBip39Derivation::has_bug(lightclient) {
+            let mut h = vec![];
+            h.push("It looks like your wallet has the bip39bug. Please run 'fixbip39bug' to fix it");
+            h.push("before encrypting your wallet.");
+            h.push("ERROR: Cannot encrypt while wallet has the bip39bug.");
+            return h.join("\n");
+        }
+
         let passwd = args[0].to_string();
 
         match lightclient.wallet.write().unwrap().encrypt(passwd) {
@@ -321,6 +331,44 @@ impl Command for UnlockCommand {
         }.pretty(2)
     }
 }
+
+
+struct LockCommand {}
+impl Command for LockCommand {
+    fn help(&self) -> String {
+        let mut h = vec![];
+        h.push("Lock a wallet that's been temporarily unlocked. You should already have encryption enabled.");
+        h.push("Note 1: This will remove all spending keys from memory. The wallet remains encrypted on disk");
+        h.push("Note 2: If you've forgotten the password, the only way to recover the wallet is to restore");
+        h.push("        from the seed phrase.");
+        h.push("Usage:");
+        h.push("lock");
+        h.push("");
+        h.push("Example:");
+        h.push("lock");
+
+        h.join("\n")
+    }
+
+    fn short_help(&self) -> String {
+        "Lock a wallet that's been temporarily unlocked".to_string()
+    }
+
+    fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
+        if args.len() != 0 {
+            return self.help();
+        }
+
+        match lightclient.wallet.write().unwrap().lock() {
+            Ok(_)  => object!{ "result" => "success" },
+            Err(e) => object!{
+                "result" => "error",
+                "error"  => e.to_string()
+            }
+        }.pretty(2)
+    }
+}
+
 
 struct SendCommand {}
 impl Command for SendCommand {
@@ -655,6 +703,7 @@ pub fn get_commands() -> Box<HashMap<String, Box<dyn Command>>> {
     map.insert("encrypt".to_string(),       Box::new(EncryptCommand{}));
     map.insert("decrypt".to_string(),       Box::new(DecryptCommand{}));
     map.insert("unlock".to_string(),        Box::new(UnlockCommand{}));
+    map.insert("lock".to_string(),          Box::new(LockCommand{}));
     map.insert("fixbip39bug".to_string(),   Box::new(FixBip39BugCommand{}));
 
     Box::new(map)
