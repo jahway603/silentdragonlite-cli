@@ -3,7 +3,7 @@ use crate::lightwallet::LightWallet;
 use log::{info, warn, error};
 use rand::{rngs::OsRng, seq::SliceRandom};
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicI32, AtomicUsize, Ordering};
 use std::path::{Path, PathBuf};
 use std::fs::File;
@@ -24,6 +24,8 @@ use crate::grpc_client::{BlockId};
 use crate::grpcconnector::{self, *};
 use crate::SaplingParams;
 use crate::ANCHOR_OFFSET;
+
+mod checkpoints;
 
 pub const DEFAULT_SERVER: &str = "https://";
 pub const WALLET_NAME: &str    = "silentdragonlite-cli-wallet.dat";
@@ -117,18 +119,8 @@ impl LightClientConfig {
         log_path.into_boxed_path()
     }
 
-    pub fn get_initial_state(&self) -> Option<(u64, &str, &str)> {
-        match &self.chain_name[..] {
-            "test" => Some((105942,
-                        "00000001c0199f329ee03379bf1387856dbab23765da508bf9b9d8d544f212c0",
-                        ""
-                      )),
-            "main" => Some((105944,
-                        "0000000313b0ec7c5a1e9b997ce44a7763b56c5505526c36634a004ed52d7787",
-                        ""
-            )),
-            _ => None
-        }
+    pub fn get_initial_state(&self, height: u64) -> Option<(u64, &str, &str)> {
+        checkpoints::get_closest_checkpoint(&self.chain_name, height)
     }
 
     pub fn get_server_or_default(server: Option<String>) -> http::Uri {
@@ -209,14 +201,16 @@ pub struct LightClient {
     // zcash-params
     pub sapling_output  : Vec<u8>,
     pub sapling_spend   : Vec<u8>,
+
+    sync_lock           : Mutex<()>,
 }
 
 impl LightClient {
     
-    pub fn set_wallet_initial_state(&self) {
+    pub fn set_wallet_initial_state(&self, height: u64) {
         use std::convert::TryInto;
 
-        let state = self.config.get_initial_state();
+        let state = self.config.get_initial_state(height);
 
         match state {
             Some((height, hash, tree)) => self.wallet.read().unwrap().set_initial_block(height.try_into().unwrap(), hash, tree),
@@ -239,10 +233,11 @@ impl LightClient {
                 wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), &config, 0)?)),
                 config          : config.clone(),
                 sapling_output  : vec![], 
-                sapling_spend   : vec![]
+                sapling_spend   : vec![],
+                sync_lock       : Mutex::new(()),
             };
 
-        l.set_wallet_initial_state();
+        l.set_wallet_initial_state(0);
         l.read_sapling_params();
 
         info!("Created new wallet!");
@@ -263,10 +258,11 @@ impl LightClient {
                 wallet          : Arc::new(RwLock::new(LightWallet::new(None, config, latest_block)?)),
                 config          : config.clone(),
                 sapling_output  : vec![], 
-                sapling_spend   : vec![]
+                sapling_spend   : vec![],
+                sync_lock       : Mutex::new(()),
             };
 
-        l.set_wallet_initial_state();
+        l.set_wallet_initial_state(latest_block);
         l.read_sapling_params();
 
         info!("Created new wallet with a new seed!");
@@ -275,20 +271,22 @@ impl LightClient {
         Ok(l)
     }
 
-    pub fn new_from_phrase(seed_phrase: String, config: &LightClientConfig, latest_block: u64) -> io::Result<Self> {
+    pub fn new_from_phrase(seed_phrase: String, config: &LightClientConfig, birthday: u64) -> io::Result<Self> {
         if config.wallet_exists() {
             return Err(Error::new(ErrorKind::AlreadyExists,
                     "Cannot create a new wallet from seed, because a wallet already exists"));
         }
 
         let mut l = LightClient {
-                wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), config, latest_block)?)),
+                wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), config, birthday)?)),
                 config          : config.clone(),
                 sapling_output  : vec![], 
-                sapling_spend   : vec![]
+                sapling_spend   : vec![],
+                sync_lock       : Mutex::new(()),
             };
 
-        l.set_wallet_initial_state();
+        println!("Setting birthday to {}", birthday);
+        l.set_wallet_initial_state(birthday);
         l.read_sapling_params();
 
         info!("Created new wallet!");
@@ -310,7 +308,8 @@ impl LightClient {
             wallet          : Arc::new(RwLock::new(wallet)),
             config          : config.clone(),
             sapling_output  : vec![], 
-            sapling_spend   : vec![]
+            sapling_spend   : vec![],
+            sync_lock       : Mutex::new(()),
         };
 
         lc.read_sapling_params();
@@ -319,7 +318,7 @@ impl LightClient {
         info!("Created LightClient to {}", &config.server);
 
         if crate::lightwallet::bugs::BugBip39Derivation::has_bug(&lc) {
-            let m = format!("WARNING!!!\nYour wallet has a bip39derivation bug that's showing incorrect addresses.\nPlease run 'fixbip39bug' to automatically fix the address derivation in your wallet!\nPlease see: https://github.com/adityapk00/zecwallet-light-cli/blob/master/bip39bug.md");
+            let m = format!("WARNING!!!\nYour wallet has a bip39derivation bug that's showing incorrect addresses.\nPlease run 'fixbip39bug' to automatically fix the address derivation in your wallet!\nPlease see: https://github.com/adityapk00/silentdragonlite-light-cli/blob/master/bip39bug.md");
              info!("{}", m);
              println!("{}", m);
         }
@@ -437,16 +436,16 @@ impl LightClient {
         let z_addresses = wallet.zaddress.read().unwrap().iter().map( |ad| {
             let address = encode_payment_address(self.config.hrp_sapling_address(), &ad);
             object!{
-                "address" => address.clone(),
-                "zbalance" => wallet.zbalance(Some(address.clone())),
-                "verified_zbalance" => wallet.verified_zbalance(Some(address)),
+                "address" => address.clone() ,
+                "zbalance" => wallet.zbalance(Some(address.clone())) ,
+                "verified_zbalance" => wallet.verified_zbalance(Some(address)) ,
             }
         }).collect::<Vec<JsonValue>>();
 
         // Collect t addresses
         let t_addresses = wallet.taddresses.read().unwrap().iter().map( |address| {
             // Get the balance for this address
-            let balance = wallet.tbalance(Some(address.clone()));
+            let balance = wallet.tbalance(Some(address.clone())) ;
             
             object!{
                 "address" => address.clone(),
@@ -457,7 +456,7 @@ impl LightClient {
         object!{
             "zbalance"           => wallet.zbalance(None),
             "verified_zbalance"  => wallet.verified_zbalance(None),
-            "tbalance"           => wallet.tbalance(None),
+            "tbalance"           => wallet.tbalance(None), 
             "z_addresses"        => z_addresses,
             "t_addresses"        => t_addresses,
         }
@@ -709,8 +708,8 @@ impl LightClient {
         let wallet = self.wallet.write().unwrap();
 
         let new_address = match addr_type {
-            "z" => wallet.add_zaddr(),
-            "t" => wallet.add_taddr(),
+            "zs" => wallet.add_zaddr(),
+            "R" => wallet.add_taddr(),
             _   => {
                 let e = format!("Unrecognized address type: {}", addr_type);
                 error!("{}", e);
@@ -727,7 +726,7 @@ impl LightClient {
         self.wallet.read().unwrap().clear_blocks();
 
         // Then set the initial block
-        self.set_wallet_initial_state();
+        self.set_wallet_initial_state(self.wallet.read().unwrap().get_birthday());
         
         // Then, do a sync, which will force a full rescan from the initial state
         let response = self.do_sync(true);
@@ -737,6 +736,10 @@ impl LightClient {
     }
 
     pub fn do_sync(&self, print_updates: bool) -> String {
+        // We can only do one sync at a time because we sync blocks in serial order
+        // If we allow multiple syncs, they'll all get jumbled up.
+        let _lock = self.sync_lock.lock().unwrap();
+
         // Sync is 3 parts
         // 1. Get the latest block
         // 2. Get all the blocks that we don't have
@@ -976,24 +979,24 @@ pub mod tests {
         let lc = super::LightClient::unconnected(TEST_SEED.to_string(), None).unwrap();
 
         assert!(!lc.do_export(None).is_err());
-        assert!(!lc.do_new_address("z").is_err());
-        assert!(!lc.do_new_address("t").is_err());
+        assert!(!lc.do_new_address("zs").is_err());
+        assert!(!lc.do_new_address("R").is_err());
         assert_eq!(lc.do_seed_phrase().unwrap()["seed"], TEST_SEED.to_string());
 
         // Encrypt and Lock the wallet
         lc.wallet.write().unwrap().encrypt("password".to_string()).unwrap();
         assert!(lc.do_export(None).is_err());
         assert!(lc.do_seed_phrase().is_err());
-        assert!(lc.do_new_address("t").is_err());
-        assert!(lc.do_new_address("z").is_err());
-        assert!(lc.do_send(vec![("z", 0, None)]).is_err());
+        assert!(lc.do_new_address("R").is_err());
+        assert!(lc.do_new_address("zs").is_err());
+        assert!(lc.do_send(vec![("zs", 0, None)]).is_err());
 
         // Do a unlock, and make sure it all works now
         lc.wallet.write().unwrap().unlock("password".to_string()).unwrap();
         assert!(!lc.do_export(None).is_err());
         assert!(!lc.do_seed_phrase().is_err());
-        assert!(!lc.do_new_address("t").is_err());
-        assert!(!lc.do_new_address("z").is_err());
+        assert!(!lc.do_new_address("R").is_err());
+        assert!(!lc.do_new_address("zs").is_err());
     }
 
     #[test]
@@ -1002,10 +1005,10 @@ pub mod tests {
 
         // Add new z and t addresses
             
-        let taddr1 = lc.do_new_address("t").unwrap()[0].as_str().unwrap().to_string();
-        let taddr2 = lc.do_new_address("t").unwrap()[0].as_str().unwrap().to_string();        
-        let zaddr1 = lc.do_new_address("z").unwrap()[0].as_str().unwrap().to_string();
-        let zaddr2 = lc.do_new_address("z").unwrap()[0].as_str().unwrap().to_string();
+        let taddr1 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();
+        let taddr2 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();        
+        let zaddr1 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
+        let zaddr2 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
         
         let addresses = lc.do_address();
         assert_eq!(addresses["z_addresses"].len(), 3);

@@ -173,8 +173,16 @@ impl LightWallet {
             let mut system_rng = OsRng;
             system_rng.fill(&mut seed_bytes);
         } else {
-            seed_bytes.copy_from_slice(&Mnemonic::from_phrase(seed_phrase.expect("should have a seed phrase"), 
-                    Language::English).unwrap().entropy());
+            let phrase = match Mnemonic::from_phrase(seed_phrase.unwrap(), Language::English) {
+                Ok(p) => p,
+                Err(e) => {
+                    let e = format!("Error parsing phrase: {}", e);
+                    error!("{}", e);
+                    return Err(io::Error::new(ErrorKind::InvalidData, e));
+                }
+            };
+            
+            seed_bytes.copy_from_slice(&phrase.entropy());
         }
 
         // The seed bytes is the raw entropy. To pass it to HD wallet generation, 
@@ -360,8 +368,8 @@ impl LightWallet {
                         })?;
         utils::write_string(&mut writer, &self.config.chain_name)?;
 
-        // While writing the birthday, be sure that we're right, and that we don't
-        // have a tx that is before the current birthday
+        // While writing the birthday, get it from the fn so we recalculate it properly
+        // in case of rescans etc...
         writer.write_u64::<LittleEndian>(self.get_birthday())?;
 
         Ok(())
@@ -375,7 +383,11 @@ impl LightWallet {
     }
 
     pub fn get_birthday(&self) -> u64 {
-        cmp::min(self.get_first_tx_block(), self.birthday)
+        if self.birthday == 0 {
+            self.get_first_tx_block()
+        } else {
+            cmp::min(self.get_first_tx_block(), self.birthday)
+        }
     }
 
     // Get the first block that this wallet has a tx in. This is often used as the wallet's "birthday"
@@ -388,7 +400,7 @@ impl LightWallet {
             .collect::<Vec<u64>>();
         blocks.sort();
 
-        *blocks.first() // Returns optional
+        *blocks.first() // Returns optional, so if there's no txns, it'll get the activation height
             .unwrap_or(&cmp::max(self.birthday, self.config.sapling_activation_height))
     }
 
@@ -1294,7 +1306,7 @@ impl LightWallet {
         // Print info about the block every 10,000 blocks
         if height % 10_000 == 0 {
             match self.get_sapling_tree() {
-                Ok((h, hash, stree)) => info!("Sapling tree at height {}/{} - {}", h, hash, stree),
+                Ok((h, hash, stree)) => info!("Sapling tree at height\n({}, \"{}\",\"{}\"),", h, hash, stree),
                 Err(e) => error!("Couldn't determine sapling tree: {}", e)
             }
         }
@@ -1331,7 +1343,7 @@ impl LightWallet {
 
         let total_value = tos.iter().map(|to| to.1).sum::<u64>();
         println!(
-            "0: Creating transaction sending {} ztoshis to {} addresses",
+            "0: Creating transaction sending {} puposhis to {} addresses",
             total_value, tos.len()
         );
 
@@ -1388,10 +1400,10 @@ impl LightWallet {
         let mut builder = Builder::new(height);
 
         // A note on t addresses
-        // Funds received by t-addresses can't be explicitly spent in ZecWallet. 
-        // ZecWallet will lazily consolidate all t address funds into your shielded addresses. 
+        // Funds received by t-addresses can't be explicitly spent in silentdragonlite. 
+        // silentdragonlite will lazily consolidate all t address funds into your shielded addresses. 
         // Specifically, if you send an outgoing transaction that is sent to a shielded address,
-        // ZecWallet will add all your t-address funds into that transaction, and send them to your shielded
+        // silentdragonlite will add all your t-address funds into that transaction, and send them to your shielded
         // address as change.
         let tinputs: Vec<_> = self.get_utxos().iter()
                                 .filter(|utxo| utxo.unconfirmed_spent.is_none()) // Remove any unconfirmed spends

@@ -356,7 +356,11 @@ impl Command for LockCommand {
 
     fn exec(&self, args: &[&str], lightclient: &LightClient) -> String {
         if args.len() != 0 {
-            return self.help();
+            let mut h = vec![];
+            h.push("Extra arguments to lock. Did you mean 'encrypt'?");
+            h.push("");
+            
+            return format!("{}\n{}", h.join("\n"), self.help());
         }
 
         match lightclient.wallet.write().unwrap().lock() {
@@ -378,7 +382,7 @@ impl Command for SendCommand {
         h.push("Usage:");
         h.push("send <address> <amount in puposhis> \"optional_memo\"");
         h.push("OR");
-        h.push("send '[{'address': <address>, 'amount': <amount in zatoshis>, 'memo': <optional memo>}, ...]'");
+        h.push("send '[{'address': <address>, 'amount': <amount in puposhis>, 'memo': <optional memo>}, ...]'");
         h.push("");
         h.push("Example:");
         h.push("send ztestsapling1x65nq4dgp0qfywgxcwk9n0fvm4fysmapgr2q00p85ju252h6l7mmxu2jg9cqqhtvzd69jwhgv8d 200000 \"Hello from the command line\"");
