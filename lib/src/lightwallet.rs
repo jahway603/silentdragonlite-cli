@@ -471,7 +471,7 @@ impl LightWallet {
     }
    // Add a new Sietch Addr. This will derive a new zdust address from the seed
     pub fn add_zaddrdust(&self) -> String {
-        
+   
 
         let pos = self.extsks.read().unwrap().len() as u32;
       

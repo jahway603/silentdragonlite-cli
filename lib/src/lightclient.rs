@@ -914,10 +914,7 @@ impl LightClient {
     }
 
     pub fn do_new_sietchaddress(&self, addr_type: &str) -> Result<JsonValue, String> {
-        if !self.wallet.read().unwrap().is_unlocked_for_spending() {
-            error!("Wallet is locked");
-            return Err("Wallet is locked".to_string());
-        }
+       
 
         let new_address = {
             let wallet = self.wallet.write().unwrap();
