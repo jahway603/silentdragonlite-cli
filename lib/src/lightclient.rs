@@ -652,19 +652,6 @@ impl LightClient {
         }
     }
 
-    pub fn do_rawmempool(&self) -> String {
-        match get_rawmempool(self.get_server_uri(), self.config.no_cert_verification) {
-            Ok(i) => {
-                let o = object!{
-                    "ID" => i.id
-                   
-                };
-                o.pretty(2)
-            },
-            Err(e) => e
-        }
-    }
-
     pub fn do_seed_phrase(&self) -> Result<JsonValue, &str> {
         if !self.wallet.read().unwrap().is_unlocked_for_spending() {
             error!("Wallet is locked");
@@ -914,10 +901,7 @@ impl LightClient {
     }
 
     pub fn do_new_sietchaddress(&self, addr_type: &str) -> Result<JsonValue, String> {
-        if !self.wallet.read().unwrap().is_unlocked_for_spending() {
-            error!("Wallet is locked");
-            return Err("Wallet is locked".to_string());
-        }
+       
 
         let new_address = {
             let wallet = self.wallet.write().unwrap();
