@@ -469,7 +469,7 @@ impl LightWallet {
 
         zaddr
     }
-   // Add a new Sietch Addr. This will derive a new zdust address from the seed
+   // Add a new Sietch Addr. This will derive a new zdust address from manipluated seed
     pub fn add_zaddrdust(&self) -> String {
    
 
@@ -480,25 +480,21 @@ impl LightWallet {
          let mut rng = rand::thread_rng();
          let letter: String = rng.gen_range(b'A', b'Z').to_string();
          let number: String = rng.gen_range(0, 999999).to_string();
-        // let combi: String = letter.to_string() + number.to_string();
          let s = format!("{}{:06}", letter, number);
-         //println!("{}", s);
-     
-     let my_string = String::from(s);
-    // let my_immutable_string = &my_string; //This is a &String type
- let dust: &str = &my_string; //This is an &str type
+         let my_string = String::from(s);
+         let dust: &str = &my_string; 
 
 
 
-     let bip39_seed = bip39::Seed::new(&Mnemonic::from_entropy(&self.seed, Language::English).unwrap(), dust);
+        let bip39_seed = bip39::Seed::new(&Mnemonic::from_entropy(&self.seed, Language::English).unwrap(), dust);
 
-     let (_extsk, _extfvk, address) =
-         LightWallet::get_zaddr_from_bip39seed(&self.config, &bip39_seed.as_bytes(), pos);
+        let (_extsk, _extfvk, address) =
+        LightWallet::get_zaddr_from_bip39seed(&self.config, &bip39_seed.as_bytes(), pos);
 
-     let zaddr = encode_payment_address(self.config.hrp_sapling_address(), &address);
+        let zaddr = encode_payment_address(self.config.hrp_sapling_address(), &address);
     
 
-     zaddr
+        zaddr
     }
 
     /// Add a new t address to the wallet. This will derive a new address from the seed

@@ -66,10 +66,6 @@ message Coinsupply {
     int64 total = 6;
 }
 
-message RawMempool {
-    string ID = 1;
-}
-
 message TransparentAddress {
     string address = 1;
 }
@@ -95,5 +91,4 @@ service CompactTxStreamer {
     // Misc
     rpc GetLightdInfo(Empty) returns (LightdInfo) {}
     rpc GetCoinsupply(Empty) returns (Coinsupply) {}
-    rpc GetRawMempool(Empty) returns (RawMempool) {}
 }
