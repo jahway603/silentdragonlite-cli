@@ -170,7 +170,7 @@ impl LightWallet {
         (extsk, extfvk, address)
     }
 
-    fn get_sietch_from_bip39seed(config: &LightClientConfig, bip39_seed: &[u8], pos: u32) ->
+    fn get_sietch_from_bip39seed(config: &LightClientConfig, bip39_seed: &[u8]) ->
     PaymentAddress<Bls12> {
     assert_eq!(bip39_seed.len(), 64);
 
@@ -179,7 +179,7 @@ impl LightWallet {
     &[
         ChildIndex::Hardened(32),
         ChildIndex::Hardened(config.get_coin_type()),
-        ChildIndex::Hardened(pos)
+      
     ],
     );
     let extfvk  = ExtendedFullViewingKey::from(&extsk);
@@ -493,7 +493,7 @@ impl LightWallet {
     pub fn add_zaddrdust(&self) -> String {
    
         let mut seed_bytes = [0u8; 32];
-        let pos = self.extsks.read().unwrap().len() as u32;
+        //let pos = self.extsks.read().unwrap().len() as u32;
       
          // Use random generator to create a new Sietch seed every time when call.
        
@@ -511,7 +511,7 @@ impl LightWallet {
         let bip39_seed = bip39::Seed::new(&Mnemonic::from_entropy(&seed_bytes, Language::English).unwrap(), dust);
 
         let address =
-        LightWallet::get_sietch_from_bip39seed(&self.config, &bip39_seed.as_bytes(), pos);
+        LightWallet::get_sietch_from_bip39seed(&self.config, &bip39_seed.as_bytes());
 
         let zdust = encode_payment_address(self.config.hrp_sapling_address(), &address);
     
