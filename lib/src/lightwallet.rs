@@ -623,7 +623,7 @@ impl LightWallet {
             )
         } {
             (Some(min_height), Some(max_height)) => {
-                let target_height = max_height + 1;
+                let target_height = max_height;
 
                 // Select an anchor ANCHOR_OFFSET back from the target block,
                 // unless that would be before the earliest block we have.
