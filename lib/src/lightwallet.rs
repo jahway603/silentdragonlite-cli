@@ -609,7 +609,7 @@ impl LightWallet {
         self.blocks.read().unwrap()
             .last()
             .map(|block| block.height)
-            .unwrap_or(self.config.sapling_activation_height as i32 - 1)
+            .unwrap_or(self.config.sapling_activation_height as i32)
     }
 
     /// Determines the target height for a transaction, and the offset from which to
