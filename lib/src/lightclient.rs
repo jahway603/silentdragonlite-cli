@@ -902,8 +902,7 @@ impl LightClient {
 
     pub fn do_new_sietchaddress(&self, addr_type: &str) -> Result<JsonValue, String> {
        
-
-        let new_address = {
+        let zdust_address = {
             let wallet = self.wallet.write().unwrap();
 
             match addr_type {
@@ -917,9 +916,7 @@ impl LightClient {
             }
         };
 
-        self.do_save()?;
-
-        Ok(array![new_address])
+        Ok(array![zdust_address])
     }
 
     pub fn clear_state(&self) {
