@@ -426,8 +426,8 @@ impl LightClient {
         let version = inp.read_u64::<LittleEndian>().unwrap();
         println!("Reading wallet version {}", version);
 
-        // After version 5, we're writing the rest of the file as a compressed stream (gzip)
-        let mut reader: Box<dyn Read> = if version <= 4 {
+        // At version 5, we're writing the rest of the file as a compressed stream (gzip)
+        let mut reader: Box<dyn Read> = if version != 5 {
             Box::new(inp)
         } else {
             Box::new(Decoder::new(inp).unwrap())
@@ -901,12 +901,8 @@ impl LightClient {
     }
 
     pub fn do_new_sietchaddress(&self, addr_type: &str) -> Result<JsonValue, String> {
-        if !self.wallet.read().unwrap().is_unlocked_for_spending() {
-            error!("Wallet is locked");
-            return Err("Wallet is locked".to_string());
-        }
-
-        let new_address = {
+       
+        let zdust_address = {
             let wallet = self.wallet.write().unwrap();
 
             match addr_type {
@@ -920,9 +916,7 @@ impl LightClient {
             }
         };
 
-        self.do_save()?;
-
-        Ok(array![new_address])
+        Ok(array![zdust_address])
     }
 
     pub fn clear_state(&self) {

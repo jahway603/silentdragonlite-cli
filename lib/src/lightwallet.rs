@@ -11,7 +11,7 @@ use log::{info, warn, error};
 
 use protobuf::parse_from_bytes;
 
-use libflate::{gzip::{Decoder, Encoder}, finish::AutoFinishUnchecked};
+use libflate::gzip::{Decoder};
 use secp256k1::SecretKey;
 use bip39::{Mnemonic, Language};
 
@@ -38,7 +38,11 @@ use zcash_primitives::{
     zip32::{ExtendedFullViewingKey, ExtendedSpendingKey, ChildIndex},
     JUBJUB,
     primitives::{PaymentAddress},
+    
+    
 };
+
+
 
 
 use crate::lightclient::{LightClientConfig};
@@ -112,6 +116,7 @@ pub struct LightWallet {
     extfvks: Arc<RwLock<Vec<ExtendedFullViewingKey>>>,
 
     pub zaddress: Arc<RwLock<Vec<PaymentAddress<Bls12>>>>,
+   
     
     // Transparent keys. If the wallet is locked, then the secret keys will be encrypted,
     // but the addresses will be present. 
@@ -135,7 +140,7 @@ pub struct LightWallet {
 
 impl LightWallet {
     pub fn serialized_version() -> u64 {
-        return 5;
+        return 6;
     }
 
     fn get_taddr_from_bip39seed(config: &LightClientConfig, bip39_seed: &[u8], pos: u32) -> SecretKey {
@@ -169,6 +174,25 @@ impl LightWallet {
 
         (extsk, extfvk, address)
     }
+
+    fn get_sietch_from_bip39seed( bip39_seed: &[u8]) ->
+    
+    
+    PaymentAddress<Bls12> {
+    assert_eq!(bip39_seed.len(), 64);
+
+    let zdustextsk: ExtendedSpendingKey = ExtendedSpendingKey::from_path(
+    &ExtendedSpendingKey::master(bip39_seed),
+    &[
+        ChildIndex::Hardened(32),
+         
+    ],
+    );
+    let zdustextfvk  = ExtendedFullViewingKey::from(&zdustextsk);
+    let zdustaddress = zdustextfvk.default_address().unwrap().1;
+
+    (zdustaddress)
+}
 
     pub fn is_shielded_address(addr: &String, config: &LightClientConfig) -> bool {
         match address::RecipientAddress::from_str(addr,
@@ -243,8 +267,8 @@ impl LightWallet {
     println!("Reading wallet version {}", version);
         info!("Reading wallet version {}", version);
 
-         // After version 5, we're writing the rest of the file as a compressed stream (gzip)
-         let mut reader: Box<dyn Read> = if version <= 4 {
+         // At version 5, we're writing the rest of the file as a compressed stream (gzip)
+         let mut reader: Box<dyn Read> = if version !=5 {
             info!("Reading direct");
             Box::new(inp)
         } else {
@@ -342,17 +366,14 @@ impl LightWallet {
         })
     }
 
-    pub fn write<W: Write>(&self, mut out: W) -> io::Result<()> {
+    pub fn write<W: Write>(&self, mut writer: W) -> io::Result<()> {
         if self.encrypted && self.unlocked {
             return Err(Error::new(ErrorKind::InvalidInput, 
                         format!("Cannot write while wallet is unlocked while encrypted.")));
         }
 
         // Write the version
-        out.write_u64::<LittleEndian>(LightWallet::serialized_version())?;
-
-        // Gzip encoder
-        let mut writer = AutoFinishUnchecked::new(Encoder::new(out).unwrap());
+        writer.write_u64::<LittleEndian>(LightWallet::serialized_version())?;
 
         // Write if it is locked
         writer.write_u8(if self.encrypted {1} else {0})?;
@@ -472,38 +493,34 @@ impl LightWallet {
 
         zaddr
     }
-   // Add a new Sietch Addr. This will derive a new zdust address from the seed
-    pub fn add_zaddrdust(&self) -> String {
-        if !self.unlocked {
-            return "".to_string();
-        }
 
-        let pos = self.extsks.read().unwrap().len() as u32;
+   // Add a new Sietch Addr. This will derive a new zdust address from manipluated seed
+    pub fn add_zaddrdust(&self) -> String {
+   
+        let mut seed_bytes = [0u8; 32];
+
       
-         // Use random generator to create a new Sietch seed every time when call.
+         // Use random generator to create a new Sietch seed 
        
          let mut rng = rand::thread_rng();
          let letter: String = rng.gen_range(b'A', b'Z').to_string();
          let number: String = rng.gen_range(0, 999999).to_string();
-        // let combi: String = letter.to_string() + number.to_string();
          let s = format!("{}{:06}", letter, number);
-         //println!("{}", s);
-     
-     let my_string = String::from(s);
-    // let my_immutable_string = &my_string; //This is a &String type
- let dust: &str = &my_string; //This is an &str type
+         let my_string = String::from(s);
+         let dust: &str = &my_string; 
 
 
+         let mut system_rng = OsRng;
+         system_rng.fill(&mut seed_bytes);
+          
+        let bip39_seed = bip39::Seed::new(&Mnemonic::from_entropy(&seed_bytes, Language::English).unwrap(), dust);
 
-     let bip39_seed = bip39::Seed::new(&Mnemonic::from_entropy(&self.seed, Language::English).unwrap(), dust);
+        let zdustaddress = LightWallet::get_sietch_from_bip39seed(&bip39_seed.as_bytes());
 
-     let (_extsk, _extfvk, address) =
-         LightWallet::get_zaddr_from_bip39seed(&self.config, &bip39_seed.as_bytes(), pos);
-
-     let zaddr = encode_payment_address(self.config.hrp_sapling_address(), &address);
+        let zdust = encode_payment_address("zs", &zdustaddress);
     
 
-     zaddr
+        zdust
     }
 
     /// Add a new t address to the wallet. This will derive a new address from the seed
@@ -606,7 +623,7 @@ impl LightWallet {
             )
         } {
             (Some(min_height), Some(max_height)) => {
-                let target_height = max_height + 1;
+                let target_height = max_height;
 
                 // Select an anchor ANCHOR_OFFSET back from the target block,
                 // unless that would be before the earliest block we have.
