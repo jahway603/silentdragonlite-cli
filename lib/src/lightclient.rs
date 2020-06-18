@@ -303,7 +303,7 @@ impl LightClient {
     pub fn unconnected(seed_phrase: String, dir: Option<String>) -> io::Result<Self> {
         let config = LightClientConfig::create_unconnected("test".to_string(), dir);
         let mut l = LightClient {
-                wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), &config, 0)?)),
+                wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), &config, 0,0 )?)),
                 config          : config.clone(),
                 sapling_output  : vec![], 
                 sapling_spend   : vec![],
@@ -329,7 +329,7 @@ impl LightClient {
         }
 
         let mut l = LightClient {
-                wallet          : Arc::new(RwLock::new(LightWallet::new(None, config, latest_block)?)),
+                wallet          : Arc::new(RwLock::new(LightWallet::new(None, config, latest_block, 0)?)),
                 config          : config.clone(),
                 sapling_output  : vec![], 
                 sapling_spend   : vec![],
@@ -347,14 +347,14 @@ impl LightClient {
         Ok(l)
     }
 
-    pub fn new_from_phrase(seed_phrase: String, config: &LightClientConfig, birthday: u64) -> io::Result<Self> {
-        if config.wallet_exists() {
+    pub fn new_from_phrase(seed_phrase: String, config: &LightClientConfig, birthday: u64,number: u64, overwrite: bool) -> io::Result<Self> {
+        if !overwrite && config.wallet_exists() {
             return Err(Error::new(ErrorKind::AlreadyExists,
                     "Cannot create a new wallet from seed, because a wallet already exists"));
         }
 
         let mut l = LightClient {
-                wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), config, birthday)?)),
+                wallet          : Arc::new(RwLock::new(LightWallet::new(Some(seed_phrase), config, birthday, number)?)),
                 config          : config.clone(),
                 sapling_output  : vec![], 
                 sapling_spend   : vec![],
@@ -365,6 +365,7 @@ impl LightClient {
         println!("Setting birthday to {}", birthday);
         l.set_wallet_initial_state(birthday);
         l.read_sapling_params();
+        println!("Setting Number to {}", number);
 
         info!("Created new wallet!");
         info!("Created LightClient to {}", &config.server);
@@ -1246,6 +1247,13 @@ pub mod tests {
     pub fn test_addresses() {
         let lc = super::LightClient::unconnected(TEST_SEED.to_string(), None).unwrap();
 
+        {
+            let addresses = lc.do_address();
+            // When restoring from seed, there should be 5+1 addresses
+            assert_eq!(addresses["z_addresses"].len(), 51);
+            assert_eq!(addresses["t_addresses"].len(), 6);
+        }
+
         // Add new z and t addresses
             
         let taddr1 = lc.do_new_address("R").unwrap()[0].as_str().unwrap().to_string();
@@ -1254,14 +1262,35 @@ pub mod tests {
         let zaddr2 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
         
         let addresses = lc.do_address();
-        assert_eq!(addresses["z_addresses"].len(), 3);
-        assert_eq!(addresses["z_addresses"][1], zaddr1);
-        assert_eq!(addresses["z_addresses"][2], zaddr2);
+        
+        assert_eq!(addresses["z_addresses"].len(), 52);
+        assert_eq!(addresses["z_addresses"][49], zaddr1);
+        assert_eq!(addresses["z_addresses"][50], zaddr2);
 
-        assert_eq!(addresses["t_addresses"].len(), 3);
-        assert_eq!(addresses["t_addresses"][1], taddr1);
-        assert_eq!(addresses["t_addresses"][2], taddr2);
+        assert_eq!(addresses["t_addresses"].len(), 8);
+        assert_eq!(addresses["t_addresses"][6], taddr1);
+        assert_eq!(addresses["t_addresses"][7], taddr2);
+
+        use std::sync::{Arc, RwLock, Mutex};
+        use crate::lightclient::{WalletStatus, LightWallet};
+
+        // When creating a new wallet, there is only 1 address
+        let config = LightClientConfig::create_unconnected("test".to_string(), None);
+        let lc = LightClient {
+            wallet          : Arc::new(RwLock::new(LightWallet::new(None, &config, 0).unwrap())),
+            config          : config,
+            sapling_output  : vec![], 
+            sapling_spend   : vec![],
+            sync_lock       : Mutex::new(()),
+            sync_status     : Arc::new(RwLock::new(WalletStatus::new())),
+        };
+        {
+            let addresses = lc.do_address();
+            // New wallets have only 1 address
+            assert_eq!(addresses["z_addresses"].len(), 1);
+            assert_eq!(addresses["t_addresses"].len(), 1);
     }
+}
 
     #[test]
     pub fn test_wallet_creation() {
@@ -1280,7 +1309,7 @@ pub mod tests {
             assert!(LightClient::new(&config, 0).is_err());
 
             // new_from_phrase will not work either, again, because wallet file exists
-            assert!(LightClient::new_from_phrase(TEST_SEED.to_string(), &config, 0).is_err());
+            assert!(LightClient::new_from_phrase(TEST_SEED.to_string(), &config, 0, false).is_err());
 
             // Creating a lightclient to the same dir without a seed should re-read the same wallet
             // file and therefore the same seed phrase
@@ -1299,7 +1328,7 @@ pub mod tests {
             assert!(LightClient::read_from_disk(&config).is_err());
 
             // New from phrase should work becase a file doesn't exist already
-            let lc = LightClient::new_from_phrase(TEST_SEED.to_string(), &config, 0).unwrap();
+            let lc = LightClient::new_from_phrase(TEST_SEED.to_string(), &config, 0, false).unwrap();
             assert_eq!(TEST_SEED.to_string(), lc.do_seed_phrase().unwrap()["seed"].as_str().unwrap().to_string());
             lc.do_save().unwrap();
 
