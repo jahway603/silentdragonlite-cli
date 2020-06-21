@@ -1321,8 +1321,16 @@ pub mod tests {
     }
 
     #[test]
+    #[test]
     pub fn test_addresses() {
         let lc = super::LightClient::unconnected(TEST_SEED.to_string(), None).unwrap();
+
+        {
+            let addresses = lc.do_address();
+            // When restoring from seed, there should be 5+1 addresses
+            assert_eq!(addresses["z_addresses"].len(), 51);
+            assert_eq!(addresses["t_addresses"].len(), 6);
+        }
 
         // Add new z and t addresses
             
@@ -1332,14 +1340,35 @@ pub mod tests {
         let zaddr2 = lc.do_new_address("zs").unwrap()[0].as_str().unwrap().to_string();
         
         let addresses = lc.do_address();
-        assert_eq!(addresses["z_addresses"].len(), 3);
-        assert_eq!(addresses["z_addresses"][1], zaddr1);
-        assert_eq!(addresses["z_addresses"][2], zaddr2);
+        
+        assert_eq!(addresses["z_addresses"].len(), 52);
+        assert_eq!(addresses["z_addresses"][49], zaddr1);
+        assert_eq!(addresses["z_addresses"][50], zaddr2);
 
-        assert_eq!(addresses["t_addresses"].len(), 3);
-        assert_eq!(addresses["t_addresses"][1], taddr1);
-        assert_eq!(addresses["t_addresses"][2], taddr2);
+        assert_eq!(addresses["t_addresses"].len(), 8);
+        assert_eq!(addresses["t_addresses"][6], taddr1);
+        assert_eq!(addresses["t_addresses"][7], taddr2);
+
+        use std::sync::{Arc, RwLock, Mutex};
+        use crate::lightclient::{WalletStatus, LightWallet};
+
+        // When creating a new wallet, there is only 1 address
+        let config = LightClientConfig::create_unconnected("test".to_string(), None);
+        let lc = LightClient {
+            wallet          : Arc::new(RwLock::new(LightWallet::new(None, &config, 0).unwrap())),
+            config          : config,
+            sapling_output  : vec![], 
+            sapling_spend   : vec![],
+            sync_lock       : Mutex::new(()),
+            sync_status     : Arc::new(RwLock::new(WalletStatus::new())),
+        };
+        {
+            let addresses = lc.do_address();
+            // New wallets have only 1 address
+            assert_eq!(addresses["z_addresses"].len(), 1);
+            assert_eq!(addresses["t_addresses"].len(), 1);
     }
+}
 
     #[test]
     pub fn test_wallet_creation() {
